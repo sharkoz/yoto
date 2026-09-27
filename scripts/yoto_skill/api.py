@@ -91,3 +91,18 @@ class YotoAPI:
             content=payload,
             headers={"Content-Type": "image/png"},
         )
+
+    def upload_cover(
+        self,
+        *,
+        payload: bytes | None = None,
+        content_type: str | None = None,
+        image_url: str | None = None,
+    ) -> dict[str, Any]:
+        params = {"autoconvert": "true", "coverType": "default"}
+        if image_url:
+            params["imageUrl"] = image_url
+        kwargs: dict[str, Any] = {"params": params}
+        if payload is not None:
+            kwargs.update(content=payload, headers={"Content-Type": content_type})
+        return self.request("POST", "/media/coverImage/user/me/upload", **kwargs)

@@ -12,7 +12,7 @@ from .api import YotoAPI
 from .auth import AuthManager, DEFAULT_AUTH_BASE, DEFAULT_REMOTE_CALLBACK_URL
 from .errors import YotoError
 from .icons import prepare_icon
-from .media import inspect_mp3
+from .media import extract_cover, inspect_mp3
 from .service import YotoService
 from .storage import ConfigStore, KeychainTokenStore
 
@@ -41,11 +41,18 @@ def parser() -> argparse.ArgumentParser:
     create = card_commands.add_parser("create")
     create.add_argument("--title", required=True)
     create.add_argument("--description")
+    set_cover = card_commands.add_parser("set-cover")
+    set_cover.add_argument("--card-id", required=True)
+    cover_source = set_cover.add_mutually_exclusive_group(required=True)
+    cover_source.add_argument("--file")
+    cover_source.add_argument("--image-url")
 
     media = categories.add_parser("media")
     media_commands = media.add_subparsers(dest="command", required=True)
     inspect = media_commands.add_parser("inspect")
     inspect.add_argument("--file", required=True)
+    embedded_cover = media_commands.add_parser("cover")
+    embedded_cover.add_argument("--file", required=True)
 
     icon = categories.add_parser("icons")
     icon_commands = icon.add_subparsers(dest="command", required=True)
@@ -110,10 +117,13 @@ def execute(args: argparse.Namespace, auth: AuthManager, service: YotoService) -
             "list": service.list_cards,
             "show": lambda: service.show_card(args.card_id),
             "create": lambda: service.create_card(args.title, args.description),
+            "set-cover": lambda: service.set_cover(args.card_id, image_file=args.file, image_url=args.image_url),
         }
         return operations[args.command]()
     if args.category == "media" and args.command == "inspect":
         return inspect_mp3(args.file).json()
+    if args.category == "media" and args.command == "cover":
+        return extract_cover(args.file)
     if args.category == "icons" and args.command == "prepare":
         return prepare_icon(args.input, args.title).json()
     if args.category == "songs":

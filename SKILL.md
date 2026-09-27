@@ -1,6 +1,6 @@
 ---
 name: yoto
-description: "Manage a user's Yoto Make Your Own (MYO) playlists: authenticate with Yoto, list or inspect cards, create playlists, and add, rename, reorder, remove, or re-icon local MP3 songs. Use when the user mentions Yoto cards, MYO playlists, uploading MP3 audio to Yoto, arranging songs on a Yoto card, or generating Yoto Player icons. Do not use for purchased-card editing, physical card linking, device control, or non-MP3 media."
+description: "Manage a user's Yoto Make Your Own (MYO) playlists: authenticate, list or inspect cards, create playlists, manage cover art, and add, rename, reorder, remove, or re-icon local MP3 songs. Use for Yoto cards, MYO playlists, MP3 uploads, card covers, or Yoto Player icons. Excludes purchased-card editing, physical card linking, device control, and non-MP3 media."
 ---
 
 # Yoto
@@ -78,6 +78,23 @@ Use `song_key`, not a visible position, for subsequent song mutations. Positions
 ```
 
 This creates MYO playlist content. It does not link a physical MYO card; the user can link it in the Yoto app.
+
+## Set a playlist cover
+
+Prefer cover art embedded in an MP3 when it matches the exact audiobook edition. Extract it with `media cover`, inspect the returned local JPEG/PNG, then upload it:
+
+```bash
+... --json media cover --file /absolute/path/first-track.mp3
+... --json cards set-cover --card-id CARD_ID --file /absolute/path/extracted-cover.jpg
+```
+
+If there is no embedded cover, search for the same title, author, language, volume, and edition on a publisher or audiobook provider site. Verify the image visually. For a direct public HTTPS image URL, use:
+
+```bash
+... --json cards set-cover --card-id CARD_ID --image-url 'https://example.com/cover.jpg'
+```
+
+Use one source option. If no matching cover can be verified, retain the existing artwork. `cards set-cover` fetches the latest full card, updates only `metadata.cover.imageL`, and verifies that Yoto retained the uploaded cover URL. It does not change chapters or icons.
 
 ## Add a song with a generated icon
 

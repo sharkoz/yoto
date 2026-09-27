@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import fcntl
+import ipaddress
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import urlparse
+
+from PIL import Image, UnidentifiedImageError
 
 from . import cards
 from .api import YotoAPI
@@ -39,6 +43,47 @@ class YotoService:
         require(bool(title.strip()), "invalid_title", "Card title cannot be empty")
         response = self.api.save_card(cards.new_card(title.strip(), description))
         return cards.summarize_card(response) if isinstance(response, dict) else {"created": True, "title": title}
+
+    def set_cover(self, card_id: str, *, image_file: str | None = None, image_url: str | None = None) -> dict[str, Any]:
+        require(bool(image_file) != bool(image_url), "invalid_cover_source", "Provide exactly one cover file or HTTPS image URL")
+        if image_url:
+            parsed = urlparse(image_url)
+            hostname = parsed.hostname or ""
+            require(parsed.scheme == "https" and hostname and not parsed.username and not parsed.password,
+                    "invalid_cover_url", "Cover image URL must be public HTTPS")
+            require(hostname != "localhost" and not hostname.endswith(".local"),
+                    "invalid_cover_url", "Cover image URL must be public HTTPS")
+            try:
+                address = ipaddress.ip_address(hostname)
+            except ValueError:
+                pass
+            else:
+                require(address.is_global, "invalid_cover_url", "Cover image URL must be public HTTPS")
+            upload = self.api.upload_cover(image_url=image_url)
+        else:
+            path = Path(str(image_file)).expanduser().resolve()
+            require(path.is_file(), "cover_not_found", f"Cover image does not exist: {path}")
+            try:
+                with Image.open(path) as opened:
+                    image_format = opened.format
+                    opened.verify()
+            except (UnidentifiedImageError, OSError) as exc:
+                raise YotoError("invalid_cover", "Cover file is not a readable image") from exc
+            require(image_format in {"JPEG", "PNG"}, "invalid_cover", "Cover image must be JPEG or PNG")
+            content_type = "image/jpeg" if image_format == "JPEG" else "image/png"
+            upload = self.api.upload_cover(payload=path.read_bytes(), content_type=content_type)
+        cover = upload.get("coverImage", upload) if isinstance(upload, dict) else {}
+        media_url = cover.get("mediaUrl") if isinstance(cover, dict) else None
+        require(isinstance(media_url, str) and media_url.startswith("https://"),
+                "cover_upload_invalid_response", "Yoto cover upload response has no HTTPS media URL")
+        with self._card_lock(card_id):
+            updated = cards.set_cover(self.api.get_card(card_id), media_url)
+            updated["cardId"] = updated.get("cardId") or card_id
+            self.api.save_card(updated)
+            verified = self.api.get_card(card_id)
+            actual_url = ((verified.get("metadata") or {}).get("cover") or {}).get("imageL")
+            require(actual_url == media_url, "update_not_verified", "Yoto did not retain the playlist cover image")
+        return cards.summarize_card(verified)
 
     def _save_and_verify(self, card_id: str, updated: dict[str, Any]) -> dict[str, Any]:
         updated["cardId"] = updated.get("cardId") or card_id

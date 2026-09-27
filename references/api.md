@@ -14,6 +14,10 @@ Each song managed by this skill is one chapter containing exactly one audio trac
 
 Official references: [content endpoints](https://yoto.dev/api/content/), [get MYO content](https://yoto.dev/api/getUserSMyoContent/), [create/update content](https://yoto.dev/api/createOrUpdateContent/), and [card schema](https://yoto.dev/reference/card-content-schema/).
 
+## Playlist cover
+
+`POST /media/coverImage/user/me/upload?autoconvert=true&coverType=default` accepts a JPEG/PNG body or a public `imageUrl` query parameter. The response's `coverImage.mediaUrl` goes in `metadata.cover.imageL` on the full card document. The command fetches the current card before saving and re-fetches afterward to verify the URL, preserving unrelated metadata and chapters. Official guide: [uploading custom cover images](https://yoto.dev/myo/uploading-cover-images/).
+
 ## MP3 upload and transcode
 
 1. Compute SHA-256 over the local MP3.

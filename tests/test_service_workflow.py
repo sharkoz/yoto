@@ -30,6 +30,26 @@ class MemoryAPI:
         self.cards[card_id] = saved
         return copy.deepcopy(saved)
 
+    def upload_cover(self, **_kwargs):
+        return {"coverImage": {"mediaUrl": "https://yoto.example/cover.jpg"}}
+
+
+def test_set_cover_preserves_existing_tracks(tmp_path, monkeypatch, simple_card) -> None:
+    monkeypatch.setenv("YOTO_DATA_DIR", str(tmp_path / "data"))
+    api = MemoryAPI(simple_card)
+    before = copy.deepcopy(api.cards["card-1"]["content"])
+    result = YotoService(api).set_cover("card-1", image_url="https://publisher.example/cover.jpg")
+    assert result["cover_url"] == "https://yoto.example/cover.jpg"
+    assert api.cards["card-1"]["content"] == before
+
+
+@pytest.mark.parametrize("url", ["http://publisher.example/cover.jpg", "https://127.0.0.1/cover.jpg"])
+def test_set_cover_rejects_nonpublic_url(tmp_path, monkeypatch, simple_card, url) -> None:
+    monkeypatch.setenv("YOTO_DATA_DIR", str(tmp_path / "data"))
+    with pytest.raises(YotoError) as error:
+        YotoService(MemoryAPI(simple_card)).set_cover("card-1", image_url=url)
+    assert error.value.code == "invalid_cover_url"
+
 
 def test_mocked_complete_song_workflow(monkeypatch, tmp_path, simple_card) -> None:
     monkeypatch.setenv("YOTO_DATA_DIR", str(tmp_path / "data"))
