@@ -82,7 +82,10 @@ def new_card(title: str, description: str | None = None) -> dict[str, Any]:
 
 def set_cover(card: dict[str, Any], image_url: str) -> dict[str, Any]:
     updated = copy.deepcopy(card)
-    metadata = updated.setdefault("metadata", {})
+    metadata = updated.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        updated["metadata"] = metadata
     cover = metadata.get("cover")
     if not isinstance(cover, dict):
         cover = {}

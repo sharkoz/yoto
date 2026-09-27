@@ -283,20 +283,15 @@ def test_cover_upload_uses_official_endpoint() -> None:
         def access_token(self, force_refresh: bool = False) -> str:
             return "token"
 
-    requests = []
-
     def handler(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json={"coverImage": {"mediaUrl": "https://yoto.example/cover"}})
-
-    api = YotoAPI(FakeAuth(), httpx.Client(transport=httpx.MockTransport(handler)), "https://example.test")
-    assert api.upload_cover(image_url="https://publisher.example/cover.jpg")["coverImage"]["mediaUrl"] == "https://yoto.example/cover"
-    assert api.upload_cover(payload=b"jpeg-bytes", content_type="image/jpeg")["coverImage"]["mediaUrl"] == "https://yoto.example/cover"
-    for request in requests:
         assert request.method == "POST"
         assert request.url.path == "/media/coverImage/user/me/upload"
         assert request.url.params["autoconvert"] == "true"
         assert request.url.params["coverType"] == "default"
-    assert requests[0].url.params["imageUrl"] == "https://publisher.example/cover.jpg"
-    assert requests[1].headers["Content-Type"] == "image/jpeg"
-    assert requests[1].content == b"jpeg-bytes"
+        assert "imageUrl" not in request.url.params
+        assert request.headers["Content-Type"] == "image/png"
+        assert request.content == b"portrait-png"
+        return httpx.Response(200, json={"coverImage": {"mediaUrl": "https://yoto.example/cover"}})
+
+    api = YotoAPI(FakeAuth(), httpx.Client(transport=httpx.MockTransport(handler)), "https://example.test")
+    assert api.upload_cover(b"portrait-png")["coverImage"]["mediaUrl"] == "https://yoto.example/cover"

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import fcntl
-import ipaddress
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
-from urllib.parse import urlparse
 
 from PIL import Image, UnidentifiedImageError
 
 from . import cards
 from .api import YotoAPI
+from .covers import COVER_SIZE, inspect_published_cover
 from .errors import YotoError, require
 from .icons import prepare_icon, upload_icon
 from .media import inspect_mp3, upload_audio
@@ -44,46 +44,52 @@ class YotoService:
         response = self.api.save_card(cards.new_card(title.strip(), description))
         return cards.summarize_card(response) if isinstance(response, dict) else {"created": True, "title": title}
 
-    def set_cover(self, card_id: str, *, image_file: str | None = None, image_url: str | None = None) -> dict[str, Any]:
-        require(bool(image_file) != bool(image_url), "invalid_cover_source", "Provide exactly one cover file or HTTPS image URL")
-        if image_url:
-            parsed = urlparse(image_url)
-            hostname = parsed.hostname or ""
-            require(parsed.scheme == "https" and hostname and not parsed.username and not parsed.password,
-                    "invalid_cover_url", "Cover image URL must be public HTTPS")
-            require(hostname != "localhost" and not hostname.endswith(".local"),
-                    "invalid_cover_url", "Cover image URL must be public HTTPS")
-            try:
-                address = ipaddress.ip_address(hostname)
-            except ValueError:
-                pass
-            else:
-                require(address.is_global, "invalid_cover_url", "Cover image URL must be public HTTPS")
-            upload = self.api.upload_cover(image_url=image_url)
-        else:
-            path = Path(str(image_file)).expanduser().resolve()
-            require(path.is_file(), "cover_not_found", f"Cover image does not exist: {path}")
-            try:
-                with Image.open(path) as opened:
-                    image_format = opened.format
-                    opened.verify()
-            except (UnidentifiedImageError, OSError) as exc:
-                raise YotoError("invalid_cover", "Cover file is not a readable image") from exc
-            require(image_format in {"JPEG", "PNG"}, "invalid_cover", "Cover image must be JPEG or PNG")
-            content_type = "image/jpeg" if image_format == "JPEG" else "image/png"
-            upload = self.api.upload_cover(payload=path.read_bytes(), content_type=content_type)
+    def set_cover(self, card_id: str, image_file: str) -> dict[str, Any]:
+        path = Path(image_file).expanduser().resolve()
+        require(path.is_file(), "cover_not_found", f"Prepared cover does not exist: {path}")
+        try:
+            with Image.open(path) as opened:
+                image_format, image_size = opened.format, opened.size
+                opened.verify()
+        except (UnidentifiedImageError, OSError) as exc:
+            raise YotoError("invalid_cover", "Prepared cover is not a readable image") from exc
+        require(image_format == "PNG" and image_size == COVER_SIZE, "cover_not_prepared",
+                "Run media prepare-cover and inspect its 160x254 preview before uploading")
+        upload = self.api.upload_cover(path.read_bytes())
         cover = upload.get("coverImage", upload) if isinstance(upload, dict) else {}
         media_url = cover.get("mediaUrl") if isinstance(cover, dict) else None
         require(isinstance(media_url, str) and media_url.startswith("https://"),
                 "cover_upload_invalid_response", "Yoto cover upload response has no HTTPS media URL")
+        # Inspect the converted asset before referencing it from a playlist.
+        inspect_published_cover(self.api.download_cover(media_url), path)
         with self._card_lock(card_id):
-            updated = cards.set_cover(self.api.get_card(card_id), media_url)
-            updated["cardId"] = updated.get("cardId") or card_id
-            self.api.save_card(updated)
-            verified = self.api.get_card(card_id)
-            actual_url = ((verified.get("metadata") or {}).get("cover") or {}).get("imageL")
-            require(actual_url == media_url, "update_not_verified", "Yoto did not retain the playlist cover image")
-        return cards.summarize_card(verified)
+            latest = self.api.get_card(card_id)
+            for attempt in range(2):
+                updated = cards.set_cover(latest, media_url)
+                updated["cardId"] = updated.get("cardId") or card_id
+                self.api.save_card(updated)
+                verified = self.api.get_card(card_id)
+                actual_url = ((verified.get("metadata") or {}).get("cover") or {}).get("imageL")
+                if actual_url == media_url:
+                    published = inspect_published_cover(self.api.download_cover(actual_url), path)
+                    final_card = self.api.get_card(card_id)
+                    final_url = ((final_card.get("metadata") or {}).get("cover") or {}).get("imageL")
+                    if final_url == media_url:
+                        return {**cards.summarize_card(final_card), "published": published}
+                    verified = final_card
+                if attempt == 1:
+                    raise YotoError("update_not_verified", "Yoto did not retain the playlist cover after one retry")
+                # A remote editor can race with this local lock. Wait until two reads agree,
+                # then rebuild the update from that latest complete card document.
+                for _ in range(10):
+                    time.sleep(0.5)
+                    latest = self.api.get_card(card_id)
+                    if latest == verified:
+                        break
+                    verified = latest
+                else:
+                    raise YotoError("update_not_verified", "Playlist is still changing; cover update was not verified")
+        raise YotoError("update_not_verified", "Playlist cover could not be verified")
 
     def _save_and_verify(self, card_id: str, updated: dict[str, Any]) -> dict[str, Any]:
         updated["cardId"] = updated.get("cardId") or card_id

@@ -16,7 +16,9 @@ Official references: [content endpoints](https://yoto.dev/api/content/), [get MY
 
 ## Playlist cover
 
-`POST /media/coverImage/user/me/upload?autoconvert=true&coverType=default` accepts a JPEG/PNG body or a public `imageUrl` query parameter. The response's `coverImage.mediaUrl` goes in `metadata.cover.imageL` on the full card document. The command fetches the current card before saving and re-fetches afterward to verify the URL, preserving unrelated metadata and chapters. Official guide: [uploading custom cover images](https://yoto.dev/myo/uploading-cover-images/).
+`POST /media/coverImage/user/me/upload?autoconvert=true&coverType=default` centre-crops the input to 638 × 1011 pixels. The skill first contains the entire uncropped source inside a portrait canvas of exactly that size, with safe margins and an optional **PARTIE X/N** badge. `media prepare-cover` saves the upload PNG and a 160 × 254 preview. The API sends only that prepared PNG, never an unprepared square image or an `imageUrl` for Yoto to crop.
+
+The response's `coverImage.mediaUrl` goes in `metadata.cover.imageL` on the full card document. The command fetches the latest card before saving and re-fetches afterward. On a verification mismatch, it waits for the card to settle, rebuilds from the latest document, and retries once. It then downloads the URL from the saved card, checks its dimensions and pixels against the prepared canvas, and returns a preview of the actual published image. It never reports success from the upload response alone. Official references: [upload endpoint and dimensions](https://yoto.dev/api/media/uploadcoverimage/), [cover workflow](https://yoto.dev/myo/uploading-cover-images/).
 
 ## MP3 upload and transcode
 
